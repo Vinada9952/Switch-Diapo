@@ -4,6 +4,8 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import math
 import pyautogui
+import subprocess
+import sys
 
 # Define the hand connections
 HAND_CONNECTIONS = [
@@ -69,7 +71,11 @@ options = HandLandmarkerOptions(
     base_options=BaseOptions(model_asset_path='hand_landmarker.task'),
     running_mode=VisionRunningMode.VIDEO)
 
-landmarker = HandLandmarker.create_from_options(options)
+try:
+    landmarker = HandLandmarker.create_from_options(options)
+except FileNotFoundError:
+    subprocess.run( "curl -o hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task".split( " " ) )
+    landmarker = HandLandmarker.create_from_options(options)
 
 # Capture video from webcam
 cap = cv2.VideoCapture( int( input( "Camera index (default 0) : " ) ) )
