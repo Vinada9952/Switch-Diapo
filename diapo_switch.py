@@ -7,6 +7,9 @@ import pyautogui
 import subprocess
 import sys
 
+# Constants
+SWIPE_FRACTION = 4  # Fraction of screen width to move for swipe action (1/SWIPE_FRACTION)
+
 # Define the hand connections
 HAND_CONNECTIONS = [
     (0,1),(1,2),(2,3),(3,4),  # thumb
@@ -17,23 +20,28 @@ HAND_CONNECTIONS = [
     (5,9),(9,13),(13,17)  # palm
 ]
 
-# hand_first_position = 0
-# hand_last_position = 0
+hand_first_position = 0
+hand_last_position = 0
 
-last_states = [None for n in range( 10 )]
+center = None
+
+gesture = None
+last_gesture = gesture
+
+initial_x = None
+threshold = 0
 
 # Function to calculate distance
 def distance(p1, p2):
     return math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2 + (p1.z - p2.z)**2)
 
-# Function to get average position of all hand landmarks
-# def get_hand_center(landmarks):
-#     if not landmarks:
-#         return None
-#     avg_x = sum(lm.x for lm in landmarks) / len(landmarks)
-#     avg_y = sum(lm.y for lm in landmarks) / len(landmarks)
-#     avg_z = sum(lm.z for lm in landmarks) / len(landmarks)
-#     return avg_x, avg_y, avg_z
+# Function to get average position of all hand landmarks in pixels
+def get_hand_center_pixels(landmarks, w, h):
+    if not landmarks:
+        return None
+    avg_x = sum(lm.x * w for lm in landmarks) / len(landmarks)
+    avg_y = sum(lm.y * h for lm in landmarks) / len(landmarks)
+    return avg_x, avg_y
 
 # Function to detect hand gesture
 def detect_gesture(world_landmarks):
@@ -50,16 +58,13 @@ def detect_gesture(world_landmarks):
     
     # Thresholds (adjust as needed)
     threshold_close = 0.08  # fist
-    threshold_open = 0.15   # open
 
     close_count = sum(1 for d in distances if d < threshold_close)
-    print( f"{close_count=}" )
+    # print( f"{close_count=}" )
     if close_count == 5:
         return "poing"
-    elif close_count <= 1:
-        return "grande ouverte"
     else:
-        return "moyennement ouverte"
+        return "ouverte"
 
 # Initialize MediaPipe Hand Landmarker
 BaseOptions = mp.tasks.BaseOptions
@@ -115,28 +120,43 @@ while cap.isOpened():
                 end_pt = (int(end_lm.x * w), int(end_lm.y * h))
                 cv2.line(frame, start_pt, end_pt, (0, 255, 0), 2)
             
+            # Draw threshold lines if fist
+            if initial_x is not None:
+                left_threshold = int(initial_x - threshold)
+                right_threshold = int(initial_x + threshold)
+                cv2.line(frame, (left_threshold, 0), (left_threshold, h), (255, 0, 0), 2)  # Blue line left
+                cv2.line(frame, (right_threshold, 0), (right_threshold, h), (255, 0, 0), 2)  # Blue line right
+            
             # Detect gesture
-            gesture = detect_gesture(world_hand)
-            last_states.append( gesture )
-            last_states.pop( 0 )
+            gesture = detect_gesture( world_hand )
+            
+            # Get hand center in pixels
+            center = get_hand_center_pixels(hand, w, h)
+            if center:
+                x, y = center
+                print( f"{x=} {y=}" )
             
             # Display gesture
             cv2.putText(frame, gesture, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
     
     # Display the frame
     cv2.imshow('Hand Skeleton', frame)
-    try:
-        if last_states.index( "poing" ) > last_states.index( "grande ouverte" ):
-            pyautogui.leftClick()
-            last_states = [None for n in range( 10 )]
-        # if last_states.index( "poing" ) < last_states.index( "grande ouverte" ):
-        #     pyautogui.press( "backspace" )
-        #     last_states = [None for n in range( 10 )]
-    except ValueError:
-        pass
-    # x, y, z = get_hand_center( result.hand_world_landmarks )
-    # print( f"{x=} {y=} {z=}" )
+
+    if last_gesture != gesture and gesture == "poing":
+        hand_first_position = x
+        initial_x = x
+        threshold = frame.shape[1] // SWIPE_FRACTION
     
+    if last_gesture != gesture and gesture == "ouverte":
+        hand_last_position = x
+        if abs( hand_first_position - hand_last_position ) > frame.shape[1] // SWIPE_FRACTION:
+            if hand_first_position - hand_last_position > 0:
+                pyautogui.press( "space" )
+            else:
+                pyautogui.press( "backspace" )
+        initial_x = None  # Reset after action
+    
+    last_gesture = gesture
     # Exit on 'q' key
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
