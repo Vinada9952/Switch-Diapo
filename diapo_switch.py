@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 # Constants
-SWIPE_FRACTION = 4  # Fraction of screen width to move for swipe action (1/SWIPE_FRACTION)
+SWIPE_FRACTION = 5  # Fraction of screen width to move for swipe action (1/SWIPE_FRACTION)
 
 # Define the hand connections
 HAND_CONNECTIONS = [
