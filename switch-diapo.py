@@ -102,9 +102,40 @@ def draw_hand(frame, hand, w, h, color):
         )
 
 
+def show_progress(step_name, index, total, width=30):
+    progress = int(index / total * width)
+    bar = '#' * progress + '-' * (width - progress)
+    print(f'[{bar}] {index}/{total} {step_name}', end='\r', flush=True)
+
+
+def ask_camera_index():
+    raw = input('Camera index (default 0) : ').strip()
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        print('Entrée invalide, utilisation de la caméra 0.')
+        return 0
+
+
 def main():
+    show_progress('Initialisation du programme', 1, 3)
+    time.sleep(0.2)
+
+    show_progress('Chargement du modèle MediaPipe', 2, 3)
     landmarker = create_landmarker()
-    cap = cv2.VideoCapture(int(input('Camera index (default 0) : ') or 0))
+    time.sleep(0.2)
+
+    show_progress('Prêt à démarrer', 3, 3)
+    time.sleep(0.2)
+    print()
+
+    i = ask_camera_index()
+
+    print( f"using camera {i}" )
+
+    cap = cv2.VideoCapture(i)
     timestamp_ms = 0
     gesture_candidate = None
     candidate_count = 0
