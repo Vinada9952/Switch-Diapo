@@ -23,6 +23,12 @@ Installez-les avec:
 pip install opencv-python mediapipe pyautogui
 ```
 
+Si vous souhaitez créer un exécutable, installez aussi `pyinstaller` :
+
+```bash
+pip install pyinstaller
+```
+
 ## Utilisation
 
 1. Ouvrir un terminal dans le dossier du projet.
@@ -33,7 +39,7 @@ python switch-diapo.py
 ```
 
 3. Choisir l'index de la caméra lorsque le programme le demande (par défaut `0`).
-4. Fermer la fenêtre ou appuyer sur `q` pour quitter.
+4. Fermer le terminal (fenêtre noire) ou appuyer sur `q` pour quitter.
 
 ## Gestes
 
