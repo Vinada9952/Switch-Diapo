@@ -1,3 +1,4 @@
 import os
 
-os.system( "python switch-diapo.py --build-exe" )
+os.system( "python hand_detection.py --build-exe" )
+os.system( "python diapo_switcher.py --build-exe" )

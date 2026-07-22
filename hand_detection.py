@@ -7,6 +7,7 @@ import pyautogui
 import subprocess
 import mediapipe as mp
 from mediapipe.tasks.python import vision
+import requests
 
 SWIPE_FRACTION = 5
 GESTURE_CONFIRM_FRAMES = 5
@@ -64,18 +65,33 @@ def detect_gesture(world_landmarks):
 
 
 def create_landmarker():
+    # Dossier sans accents/espaces pour éviter les problèmes de chemin Unicode
+    # avec le moteur C++ de MediaPipe sous Windows (le dossier "École" pose problème)
+    model_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'switch_diapo_models')
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, 'hand_landmarker.task')
+    model_url = (
+        'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
+    )
+    if not os.path.exists(model_path):
+        print(f"Model '{model_path}' not found, downloading from {model_url}...")
+        try:
+            resp = requests.get(model_url, stream=True, timeout=30)
+            resp.raise_for_status()
+            with open(model_path, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+        except Exception as e:
+            print('Failed to download hand_landmarker.task:', e)
+            raise RuntimeError(f'Could not download model from {model_url}') from e
+
     options = vision.HandLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path='hand_landmarker.task'),
+        base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
         running_mode=vision.RunningMode.VIDEO,
         num_hands=4,
     )
-    try:
-        return vision.HandLandmarker.create_from_options(options)
-    except FileNotFoundError:
-        subprocess.run(
-            "curl -o hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task".split()
-        )
-        return vision.HandLandmarker.create_from_options(options)
+    return vision.HandLandmarker.create_from_options(options)
 
 
 def hand_center_px(landmarks, w, h):
@@ -133,6 +149,13 @@ def main():
 
     i = ask_camera_index()
 
+    ip_adress = input("IP address (default http://127.0.0.1:9952): ").strip()
+    if not ip_adress:
+        ip_adress = 'http://127.0.0.1:9952'
+    elif not ip_adress.startswith(('http://', 'https://')):
+        ip_adress = 'http://' + ip_adress
+    ip_adress = ip_adress.rstrip('/')
+
     print( f"using camera {i}" )
 
     cap = cv2.VideoCapture(i)
@@ -187,7 +210,11 @@ def main():
             elif confirmed_gesture == 'ouverte' and initial_x is not None and center is not None:
                 final_x = center[0]
                 if abs(initial_x - final_x) > threshold:
-                    pyautogui.press('space' if initial_x - final_x > 0 else 'backspace')
+                    if initial_x - final_x > 0:
+                        requests.get( f"{ip_adress}/switch-diapo" )
+                    else:
+                        requests.get( f"{ip_adress}/back-diapo" )
+                    # pyautogui.press('space' if initial_x - final_x > 0 else 'backspace')
                 initial_x = None
             last_confirmed = confirmed_gesture
 
