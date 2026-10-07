@@ -10,6 +10,8 @@ from mediapipe.tasks.python import vision
 
 SWIPE_FRACTION = 5
 GESTURE_CONFIRM_FRAMES = 5
+MISSING_HAND_THRESHOLD = 10  # Nombre de frames sans main pour réinitialiser le poing
+
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
     (0, 5), (5, 6), (6, 7), (7, 8),
@@ -41,11 +43,16 @@ def build_exe():
         '--additional-hooks-dir=.', '--hidden-import=mediapipe.tasks.c',
         '--add-data', 'hand_landmarker.task;.', os.path.basename(__file__)
     ]
-    subprocess.run(cmd)
     try:
-        os.remove(hook_name)
-    except OSError:
-        pass
+        subprocess.run(cmd, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"Erreur lors de la création de l'exécutable: {e}")
+    finally:
+        if os.path.exists(hook_name):
+            try:
+                os.remove(hook_name)
+            except OSError:
+                pass
 
 
 def distance(p1, p2):
@@ -72,8 +79,10 @@ def create_landmarker():
     try:
         return vision.HandLandmarker.create_from_options(options)
     except FileNotFoundError:
+        print("Fichier modèle introuvable. Téléchargement en cours...")
         subprocess.run(
-            "curl -o hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task".split()
+            ["curl", "-o", "hand_landmarker.task", "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"],
+            check=True
         )
         return vision.HandLandmarker.create_from_options(options)
 
@@ -132,17 +141,19 @@ def main():
     print()
 
     i = ask_camera_index()
-
-    print( f"using camera {i}" )
+    print(f"using camera {i}")
 
     cap = cv2.VideoCapture(i)
-    timestamp_ms = 0
+    start_time = time.time()
+
     gesture_candidate = None
     candidate_count = 0
     confirmed_gesture = None
     last_confirmed = None
     initial_x = None
     threshold = 0
+    last_valid_center = None
+    missing_hand_count = 0  # Compteur de frames consécutives sans détection de main
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -151,23 +162,30 @@ def main():
 
         h, w = frame.shape[:2]
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        
+        timestamp_ms = int((time.time() - start_time) * 1000)
         result = landmarker.detect_for_video(image, timestamp_ms)
-        timestamp_ms += 33
+
         gesture = None
         center = None
 
         if result.hand_landmarks and result.hand_world_landmarks:
+            missing_hand_count = 0  # Main détectée, on réinitialise le compteur
             best_index = min(
                 range(len(result.hand_landmarks)),
-                key=lambda i: sum(lm.y for lm in result.hand_landmarks[i]) / len(result.hand_landmarks[i]),
+                key=lambda idx: sum(lm.y for lm in result.hand_landmarks[idx]) / len(result.hand_landmarks[idx]),
             )
             hand = result.hand_landmarks[best_index]
             world_hand = result.hand_world_landmarks[best_index]
             draw_hand(frame, hand, w, h, (0, 255, 0))
             gesture = detect_gesture(world_hand)
             center = hand_center_px(hand, w, h)
+            last_valid_center = center
             cv2.putText(frame, f'? {gesture}', (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 100, 100), 1)
+        else:
+            missing_hand_count += 1
 
+        # Confirmation progressive du geste détecté
         if gesture is not None:
             if gesture == gesture_candidate:
                 candidate_count += 1
@@ -176,16 +194,26 @@ def main():
                 candidate_count = 1
             if candidate_count >= GESTURE_CONFIRM_FRAMES:
                 confirmed_gesture = gesture_candidate
+        
+        # Si la main est absente depuis 5 frames et était en 'poing', on passe en 'ouverte'
+        if missing_hand_count >= MISSING_HAND_THRESHOLD:
+            if confirmed_gesture == 'poing':
+                confirmed_gesture = 'ouverte'
+            gesture_candidate = None
+            candidate_count = 0
 
         if confirmed_gesture:
             cv2.putText(frame, confirmed_gesture, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 0), 2)
 
+        # Utilisation de la dernière position valide si la main vient d'être perdue
+        current_center = center if center is not None else last_valid_center
+
         if confirmed_gesture != last_confirmed:
-            if confirmed_gesture == 'poing' and center is not None:
-                initial_x = center[0]
+            if confirmed_gesture == 'poing' and current_center is not None:
+                initial_x = current_center[0]
                 threshold = w // SWIPE_FRACTION
-            elif confirmed_gesture == 'ouverte' and initial_x is not None and center is not None:
-                final_x = center[0]
+            elif confirmed_gesture == 'ouverte' and initial_x is not None and current_center is not None:
+                final_x = current_center[0]
                 if abs(initial_x - final_x) > threshold:
                     pyautogui.press('space' if initial_x - final_x > 0 else 'backspace')
                 initial_x = None
